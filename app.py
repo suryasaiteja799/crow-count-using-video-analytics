@@ -422,6 +422,27 @@ def create_app():
                     video.processed_at = datetime.now()
                     video.status = 'completed'
                     db.session.commit()
+                    # also save results.json to uploads/detections/<video_id>/result.json for dashboard
+                    try:
+                        save_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'detections', str(video_id))
+                        os.makedirs(save_dir, exist_ok=True)
+                        import json as _json
+                        with open(os.path.join(save_dir, 'result.json'), 'w', encoding='utf-8') as _f:
+                            _json.dump(results, _f)
+                        # move any images returned into this folder as well (if analyzer saved elsewhere)
+                        if isinstance(results.get('images'), list):
+                            for p in results.get('images'):
+                                try:
+                                    if os.path.exists(p):
+                                        basename = os.path.basename(p)
+                                        dst = os.path.join(save_dir, basename)
+                                        if not os.path.exists(dst):
+                                            import shutil
+                                            shutil.copy2(p, dst)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
             except Exception:
                 # don't crash job if DB write fails
                 pass
@@ -549,8 +570,120 @@ def create_app():
                     images.append(url_for('uploaded_file', filename=rel))
                 except Exception:
                     images.append(p)
+            # Save results JSON into out_dir for dashboard consumption
+            try:
+                if save_frames and out_dir:
+                    import json as _json
+                    with open(os.path.join(out_dir, 'result.json'), 'w', encoding='utf-8') as f:
+                        _json.dump(results, f)
+            except Exception:
+                pass
 
             return jsonify({'success': True, 'results': results, 'images': images})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/detect_regions/<int:video_id>', methods=['POST'])
+    @login_required
+    def detect_regions(video_id):
+        """Run detection for specified rectangular regions on an image/video preview.
+
+        Expects JSON: { rects: [ {x,y,w,h}, ... ], classes: [...], save: bool }
+        """
+        try:
+            video = VideoRecord.query.get_or_404(video_id)
+            if video.user_id != current_user.id and not current_user.is_admin:
+                return jsonify({'success': False, 'error': 'Access denied'}), 403
+
+            data = request.get_json() or {}
+            rects = data.get('rects') or []
+            classes = data.get('classes')
+            save = bool(data.get('save', True))
+
+            video_path = os.path.join(app.config['UPLOAD_FOLDER'], video.filename)
+            if not os.path.exists(video_path):
+                return jsonify({'success': False, 'error': 'File not found'}), 404
+
+            try:
+                from analyzer import detect_image, point_in_poly
+            except Exception as e:
+                return jsonify({'success': False, 'error': f'Analyzer import failed: {e}'}), 500
+
+            # run detection on image (we assume image input for region detection)
+            out_dir = None
+            if save:
+                out_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'detections', str(video_id))
+                os.makedirs(out_dir, exist_ok=True)
+                out_img = os.path.join(out_dir, 'regions_annotated.jpg')
+            else:
+                out_img = None
+
+            det_res = detect_image(video_path, classes=classes, out_path=out_img)
+            dets = det_res.get('detections', [])
+
+            # Filter detections to rects
+            def in_any_rect(cx, cy, rects_list):
+                for r in rects_list:
+                    x = r.get('x'); y = r.get('y'); w = r.get('w'); h = r.get('h')
+                    if cx >= x and cx <= x + w and cy >= y and cy <= y + h:
+                        return True
+                return False
+
+            width = None
+            # get image size
+            try:
+                import cv2 as _cv
+                img = _cv.imread(video_path)
+                width = img.shape[1]
+                height = img.shape[0]
+            except Exception:
+                width = None
+
+            # compute counts
+            zone_list = json.loads(video.zones) if video.zones else []
+            zone_counts = {i: 0 for i in range(len(zone_list))}
+            grid = json.loads(video.grid_size) if video.grid_size else {'x':4,'y':3}
+            grid_counts = {}
+            for gy in range(grid['y']):
+                for gx in range(grid['x']):
+                    grid_counts[f"{chr(65+gy)}{gx+1}"] = 0
+
+            matched = []
+            for d in dets:
+                cx = int((d['x1'] + d['x2']) / 2)
+                cy = int((d['y1'] + d['y2']) / 2)
+                if rects and not in_any_rect(cx, cy, rects):
+                    continue
+                matched.append(d)
+                # zone counts
+                for zi, zone in enumerate(zone_list):
+                    if point_in_poly(cx, cy, zone.get('points', zone)):
+                        zone_counts[zi] += 1
+                # grid cell
+                if width:
+                    gx = min(grid['x'] - 1, int(cx / (width / grid['x'])))
+                    gy = min(grid['y'] - 1, int(cy / (height / grid['y'])))
+                    cell_id = f"{chr(65+gy)}{gx+1}"
+                    grid_counts[cell_id] = grid_counts.get(cell_id, 0) + 1
+
+            resp = {
+                'matched_count': len(matched),
+                'matched': matched,
+                'zone_counts': zone_counts,
+                'grid_counts': grid_counts,
+                'annotated_image': url_for('uploaded_file', filename=os.path.relpath(out_img, app.config['UPLOAD_FOLDER'])) if out_img else None
+            }
+
+            # save result.json
+            try:
+                if out_dir:
+                    import json as _json
+                    with open(os.path.join(out_dir, 'result.json'), 'w', encoding='utf-8') as f:
+                        _json.dump({'total_count': resp['matched_count'], 'grid_counts': grid_counts, 'zone_counts': zone_counts}, f)
+            except Exception:
+                pass
+
+            return jsonify({'success': True, 'result': resp})
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
 

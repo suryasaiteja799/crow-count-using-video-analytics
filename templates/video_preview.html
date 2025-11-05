@@ -43,6 +43,8 @@
                         <option value="yolo">YOLO (detector)</option>
                     </select>
                     <button type="button" class="btn btn-outline-info ms-2" id="yoloPreviewBtn">YOLO Preview</button>
+                    <input id="classFilter" type="text" class="form-control form-control-sm ms-2" placeholder="classes (comma)" style="width:160px; display:inline-block; vertical-align: middle" value="person">
+                    <button type="button" class="btn btn-warning ms-2" id="detectRectsBtn">Detect Rects</button>
                 </div>
             </div>
         </div>
@@ -358,6 +360,71 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .catch(err => {
             document.getElementById('analysisStatus').innerText = 'Preview failed: ' + err;
+        });
+    });
+
+    // Detect only inside drawn rectangles
+    document.getElementById('detectRectsBtn').addEventListener('click', () => {
+        if (!rects || rects.length === 0) {
+            alert('Draw one or more rectangles first.');
+            return;
+        }
+
+        // Collect classes from input (comma-separated), default to ['person']
+        const classInput = document.getElementById('classFilter').value || 'person';
+        const classes = classInput.split(',').map(s => s.trim()).filter(Boolean);
+
+        const payload = {
+            rects: rects,
+            classes: classes,
+            save: true
+        };
+
+        document.getElementById('analysisStatus').innerText = 'Running region detection...';
+        fetch(`{{ url_for('detect_regions', video_id=video.id) }}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                document.getElementById('analysisStatus').innerText = 'Region detect error: ' + (data.error || 'unknown');
+                return;
+            }
+            document.getElementById('analysisStatus').innerText = 'Region detect completed';
+            // Show counts and annotated image if available
+            document.getElementById('analysisResult').innerText = JSON.stringify(data.result || data, null, 2);
+            const panel = document.getElementById('yoloPreviewPanel');
+            panel.innerHTML = '';
+            // Try multiple possible response fields
+            const images = data.images || (data.result && data.result.images) || [];
+            if (data.image_url) images.unshift(data.image_url);
+            if (images.length) {
+                images.forEach(src => {
+                    const img = document.createElement('img');
+                    img.src = src;
+                    img.style.maxWidth = '400px';
+                    img.style.margin = '6px';
+                    panel.appendChild(img);
+                });
+            } else if (data.result && data.result.image_url) {
+                const img = document.createElement('img');
+                img.src = data.result.image_url;
+                img.style.maxWidth = '400px';
+                panel.appendChild(img);
+            }
+
+            // Optionally update rects or zones from returned data
+            if (data.result && data.result.zones) {
+                // if server returned updated zones, replace
+                zones = data.result.zones;
+                rects = [];
+                redrawZones();
+            }
+        })
+        .catch(err => {
+            document.getElementById('analysisStatus').innerText = 'Region detection failed: ' + err;
         });
     });
 });

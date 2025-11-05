@@ -313,3 +313,62 @@ def analyze_video_with_yolo(video_path, zones=None, grid_size=None, max_frames=1
         results['images'] = images_out
 
     return results
+
+
+def detect_image(image_path, classes=None, out_path=None):
+    """Run YOLO on a single image and return list of detections.
+
+    Returns: {
+      'detections': [ {'x1':..,'y1':..,'x2':..,'y2':..,'cls':int,'conf':float}, ... ],
+      'image': out_path (if saved)
+    }
+    """
+    if not _HAVE_YOLO:
+        raise RuntimeError('YOLO (ultralytics) not available')
+
+    model = YOLO(os.environ.get('YOLO_MODEL', 'yolov8n.pt'))
+    img = cv2.imread(image_path)
+    if img is None:
+        raise RuntimeError('Unable to read image: ' + str(image_path))
+
+    res = model(img)
+    dets = []
+    try:
+        r0 = res[0]
+        boxes = getattr(r0, 'boxes', [])
+        for box in boxes:
+            try:
+                xy = box.xyxy.cpu().numpy()[0]
+                conf = float(box.conf.cpu().numpy()[0]) if hasattr(box, 'conf') else float(box.conf)
+                clsv = int(box.cls.cpu().numpy()[0]) if hasattr(box, 'cls') else int(box.cls)
+            except Exception:
+                # fallback to attributes
+                vals = box.xyxy
+                xy = vals[0]
+                conf = float(box.conf)
+                clsv = int(box.cls)
+            x1, y1, x2, y2 = map(int, xy)
+            dets.append({'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'cls': clsv, 'conf': conf})
+    except Exception:
+        # try iterating results
+        for r in res:
+            boxes = getattr(r, 'boxes', [])
+            for box in boxes:
+                try:
+                    xy = box.xyxy.cpu().numpy()[0]
+                    conf = float(box.conf.cpu().numpy()[0]) if hasattr(box, 'conf') else float(box.conf)
+                    clsv = int(box.cls.cpu().numpy()[0]) if hasattr(box, 'cls') else int(box.cls)
+                except Exception:
+                    continue
+                x1, y1, x2, y2 = map(int, xy)
+                dets.append({'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'cls': clsv, 'conf': conf})
+
+    out = {'detections': dets}
+    if out_path:
+        vis = img.copy()
+        for d in dets:
+            cv2.rectangle(vis, (d['x1'], d['y1']), (d['x2'], d['y2']), (0,255,0), 2)
+            cv2.putText(vis, str(d['cls']), (d['x1'], max(10, d['y1']-6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+        cv2.imwrite(out_path, vis)
+        out['image'] = out_path
+    return out

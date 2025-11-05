@@ -72,6 +72,7 @@
             <thead>
               <tr>
                 <th>Time</th>
+                <th>Preview</th>
                 <th>File</th>
                 <th>Count</th>
                 <th>Status</th>
@@ -82,6 +83,13 @@
               {% for r in records %}
                 <tr>
                   <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                  <td>
+                    <div class="video-thumb" data-id="{{ r.id }}" style="position:relative; width:160px; height:90px;">
+                      <img src="{{ url_for('uploaded_file', filename=r.filename) }}" alt="thumb" style="width:100%; height:100%; object-fit:cover; display:block;"/>
+                      <canvas class="thumb-canvas" style="position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none;"></canvas>
+                      <div class="thumb-count" style="position:absolute; left:6px; top:6px; background:rgba(0,0,0,0.6); color:#fff; padding:2px 6px; border-radius:4px; font-weight:600;">{{ r.total_count }}</div>
+                    </div>
+                  </td>
                   <td>{{ r.filename }}</td>
                   <td class="video-count" data-id="{{ r.id }}">{{ r.total_count }}</td>
                   <td class="video-status" data-id="{{ r.id }}">{{ r.status }}</td>
@@ -228,6 +236,93 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }, 2000);
   }
+});
+
+// Draw grid overlays for thumbnails using saved result.json if available
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.video-thumb').forEach(container => {
+    const vid = container.getAttribute('data-id');
+    const img = container.querySelector('img');
+    const canvas = container.querySelector('.thumb-canvas');
+    const countBox = container.querySelector('.thumb-count');
+
+    function drawGridFromResult(result) {
+      const grid = result.meta && result.zone_counts === undefined ? null : null; // placeholder
+      // result contains grid_counts and total_count
+      const grid_size = result.meta && result.meta.grid_size ? result.meta.grid_size : null;
+      // We saved grid_size in VideoRecord; attempt to fetch via API if needed
+      const gridCounts = result.grid_counts || {};
+      const total = result.total_count || 0;
+      // set count
+      if (countBox) countBox.textContent = total;
+
+      // draw grid lines based on default grid size or video_info
+      const tryDraw = (gsize) => {
+        const rect = img.getBoundingClientRect();
+        canvas.width = img.naturalWidth || rect.width;
+        canvas.height = img.naturalHeight || rect.height;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        const cols = gsize.x || 4;
+        const rows = gsize.y || 3;
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.lineWidth = 1;
+        for (let i=1;i<cols;i++){
+          const x = Math.round(i * canvas.width / cols);
+          ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+        for (let j=1;j<rows;j++){
+          const y = Math.round(j * canvas.height / rows);
+          ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+      };
+
+      // Try to fetch video_info for grid size
+      fetch(`{{ url_for('video_info', video_id='') }}${vid}`)
+        .then(r => r.json())
+        .then(js => {
+          if (js.success && js.video && js.video.grid_size) {
+            tryDraw(js.video.grid_size);
+          } else {
+            tryDraw({x:4,y:3});
+          }
+        })
+        .catch(_ => tryDraw({x:4,y:3}));
+    }
+
+    // Try to load saved result.json under uploads/detections/<vid>/result.json
+    const resultUrl = `/uploads/detections/${vid}/result.json`;
+    fetch(resultUrl).then(r => {
+      if (!r.ok) throw new Error('no result');
+      return r.json();
+    }).then(resJson => {
+      // draw when image loads
+      if (img.complete) drawGridFromResult(resJson);
+      else img.onload = () => drawGridFromResult(resJson);
+    }).catch(_ => {
+      // no saved result — attempt to use video_info total_count
+      fetch(`{{ url_for('video_info', video_id='') }}${vid}`)
+        .then(r => r.json())
+        .then(js => {
+          if (js.success && js.video) {
+            const total = js.video.total_count || 0;
+            if (countBox) countBox.textContent = total;
+            // draw default grid once image loads
+            if (img.complete) {
+              const ctx = canvas.getContext('2d');
+              canvas.width = img.naturalWidth || img.width;
+              canvas.height = img.naturalHeight || img.height;
+              const cols = (js.video.grid_size && js.video.grid_size.x) || 4;
+              const rows = (js.video.grid_size && js.video.grid_size.y) || 3;
+              ctx.clearRect(0,0,canvas.width,canvas.height);
+              ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+              for (let i=1;i<cols;i++){ const x=Math.round(i*canvas.width/cols); ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
+              for (let j=1;j<rows;j++){ const y=Math.round(j*canvas.height/rows); ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
+            } else img.onload = () => { img.onload = null; /* will re-run DOMContentLoaded? */ };
+          }
+        });
+    });
+  });
 });
 </script>
 
