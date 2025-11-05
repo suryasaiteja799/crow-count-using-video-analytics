@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign in • Crow Count</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+      body{background:linear-gradient(180deg,#0f1724,#071025);min-height:100vh;color:#e6eef8}
+      .auth-card{max-width:900px;margin:48px auto;padding:2rem;background:rgba(255,255,255,0.03);border-radius:12px;backdrop-filter: blur(6px)}
+      .brand{display:flex;align-items:center;gap:12px}
+      .brand svg{width:40px;height:40px}
+      .strength {height:8px;border-radius:6px}
+      .flash {margin-bottom:12px}
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="auth-card shadow-sm">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="brand">
+            <!-- inline small icon -->
+            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" rx="14" fill="#0ea5a4"/><g fill="#fff"><path d="M30 60c0-10 10-18 20-18s20 8 20 18c0 3-2 6-6 6H36c-4 0-6-3-6-6z"/></g></svg>
+            <div>
+              <div class="h5 mb-0">Crow Count</div>
+              <small class="text-muted">Video analytics made simple</small>
+            </div>
+          </div>
+          <div>
+            <a class="btn btn-outline-light btn-sm" href="/">Home</a>
+          </div>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% for cat, msg in messages %}
+            <div class="alert alert-{{ 'success' if cat=='success' else ('warning' if cat=='warning' else 'danger') }} flash" role="alert">{{ msg }}</div>
+          {% endfor %}
+        {% endwith %}
+
+        <div class="row g-4">
+          <div class="col-md-6">
+            <div class="p-3 bg-body-tertiary rounded">
+              <h4 class="mb-3">Sign in</h4>
+              <form id="loginForm" method="post" action="{{ url_for('login') }}">
+                <div class="mb-2">
+                  <label class="form-label">Email</label>
+                  <input class="form-control" name="email" type="email" required placeholder="you@example.com">
+                </div>
+                <div class="mb-2">
+                  <label class="form-label">Password</label>
+                  <div class="input-group">
+                    <input class="form-control" id="login-password" name="password" type="password" required placeholder="Password">
+                    <button type="button" class="btn btn-outline-secondary" id="loginToggle">Show</button>
+                  </div>
+                </div>
+                <div class="mb-3 form-check">
+                  <input class="form-check-input" type="checkbox" name="remember" id="rememberCheck">
+                  <label class="form-check-label" for="rememberCheck">Remember me</label>
+                </div>
+                <div class="d-grid">
+                  <button class="btn btn-primary" type="submit">Sign in</button>
+                </div>
+                <div class="mt-2 small text-muted">Admin: <strong>admin@local</strong> / <strong>adminpass</strong></div>
+              </form>
+            </div>
+          </div>
+
+          <div class="col-md-6">
+            <div class="p-3 bg-body-tertiary rounded">
+              <h4 class="mb-3">Create account</h4>
+              <form id="registerForm" method="post" action="{{ url_for('register') }}">
+                <div class="mb-2">
+                  <label class="form-label">Full name</label>
+                  <input class="form-control" name="name" required placeholder="Your full name">
+                </div>
+                <div class="mb-2">
+                  <label class="form-label">Email</label>
+                  <input class="form-control" name="email" type="email" required placeholder="you@example.com">
+                </div>
+                <div class="mb-2">
+                  <label class="form-label">Password</label>
+                  <div class="input-group mb-1">
+                    <input class="form-control" id="reg-password" name="password" type="password" minlength="6" required placeholder="Create a password">
+                    <button type="button" class="btn btn-outline-secondary" id="regToggle">Show</button>
+                  </div>
+                  <div class="d-flex gap-2 align-items-center">
+                    <div class="progress flex-grow-1" style="height:8px"><div id="pwdStrength" class="progress-bar strength" role="progressbar" style="width:0%"></div></div>
+                    <small id="pwdHint" class="text-muted">6+ chars</small>
+                  </div>
+                </div>
+                <div class="d-grid">
+                  <button class="btn btn-success" type="submit">Create account</button>
+                </div>
+                <div class="mt-2 small text-muted">Already have an account? <a href="#" onclick="showLogin();return false;">Sign in</a></div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+      // preserve active tab from server
+      const active = '{{ active|default("login") }}';
+      function showLogin(){ window.scrollTo(0,0); /* focus */ }
+      if(active === 'register') setTimeout(()=>{ document.getElementById('reg-password') && document.getElementById('reg-password').focus() }, 50);
+
+      // toggle password visibility
+      const loginToggle = document.getElementById('loginToggle');
+      const loginPwd = document.getElementById('login-password');
+      loginToggle && loginToggle.addEventListener('click', ()=>{ if(loginPwd.type==='password'){loginPwd.type='text';loginToggle.textContent='Hide'}else{loginPwd.type='password';loginToggle.textContent='Show'}})
+
+      const regToggle = document.getElementById('regToggle');
+      const regPwd = document.getElementById('reg-password');
+      regToggle && regToggle.addEventListener('click', ()=>{ if(regPwd.type==='password'){regPwd.type='text';regToggle.textContent='Hide'}else{regPwd.type='password';regToggle.textContent='Show'}})
+
+      // password strength (simple heuristic)
+      const pwdStrength = document.getElementById('pwdStrength');
+      const pwdHint = document.getElementById('pwdHint');
+      regPwd && regPwd.addEventListener('input', ()=>{
+        const v = regPwd.value || '';
+        let score = 0;
+        if(v.length >= 6) score += 30;
+        if(/[A-Z]/.test(v)) score += 20;
+        if(/[0-9]/.test(v)) score += 20;
+        if(/[^A-Za-z0-9]/.test(v)) score += 30;
+        score = Math.min(100, score);
+        pwdStrength.style.width = score + '%';
+        if(score < 40){ pwdStrength.className = 'progress-bar bg-danger strength'; pwdHint.textContent='Weak' }
+        else if(score < 70){ pwdStrength.className = 'progress-bar bg-warning strength'; pwdHint.textContent='Okay' }
+        else { pwdStrength.className = 'progress-bar bg-success strength'; pwdHint.textContent='Strong' }
+      });
+    </script>
+  </body>
+</html>

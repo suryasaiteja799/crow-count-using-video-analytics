@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+
+{% block title %}Video Preview - Crow Count{% endblock %}
+
+{% block content %}
+{% block content %}
+<div class="container-fluid mt-4">
+        <div class="card-body">
+            <h5 class="card-title mb-3">Video Preview & Zone Setup</h5>
+            <div class="video-container position-relative mb-3" style="width: 100%; max-width: 800px; margin: 0 auto;">
+                <!-- Video preview -->
+                <video id="videoPreview" style="width: 100%; border: 1px solid #dee2e6; background: #f8f9fa;" controls>
+                    <source src="{{ url_for('uploaded_file', filename=video.filename) }}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+                
+                <!-- Drawing canvas overlay -->
+                <canvas id="drawingCanvas" class="position-absolute top-0 start-0" style="width: 100%; height: 100%; pointer-events: none;"></canvas>
+            </div>
+            
+            <div class="row g-3 align-items-center">
+                <div class="col-auto">
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-outline-primary" id="drawGrid">Draw Grid</button>
+                        <button type="button" class="btn btn-outline-primary" id="drawZone">Draw Zone</button>
+                        <button type="button" class="btn btn-outline-danger" id="clearCanvas">Clear</button>
+                    </div>
+                </div>
+                <div class="col-auto">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="showOverlay" checked>
+                        <label class="form-check-label" for="showOverlay">Show Zones</label>
+                    </div>
+                </div>
+                <div class="col-auto ms-auto">
+                    <button type="button" class="btn btn-primary" id="saveZones">Save Zones</button>
+                    <div class="btn-group ms-2" role="group">
+                        <button type="button" class="btn btn-outline-secondary" id="drawRect">Draw Rect</button>
+                        <button type="button" class="btn btn-success" id="startAnalysis">Start Analysis</button>
+                    </div>
+                    <select id="analysisMode" class="form-select form-select-sm ms-2" style="width:140px; display:inline-block; vertical-align: middle">
+                        <option value="motion">Motion (fast)</option>
+                        <option value="yolo">YOLO (detector)</option>
+                    </select>
+                    <button type="button" class="btn btn-outline-info ms-2" id="yoloPreviewBtn">YOLO Preview</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container mt-3">
+    <div class="card">
+        <div class="card-body">
+            <h6 class="card-title">Analysis Status</h6>
+            <div id="analysisStatus" class="alert alert-info">Idle</div>
+            <pre id="analysisResult" style="max-height:300px; overflow:auto; background:#f8f9fa; padding:10px;"></pre>
+            <div id="yoloPreviewPanel" class="mt-3"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const video = document.getElementById('videoPreview');
+    const canvas = document.getElementById('drawingCanvas');
+    const ctx = canvas.getContext('2d');
+    let drawing = false;
+    let currentZone = [];
+    let zones = [];
+    let rects = [];
+    let currentRect = null;
+    let gridSize = { x: 4, y: 3 }; // Default grid size
+    let drawingMode = 'zone'; // 'zone' or 'grid'
+    
+    // Resize canvas to match video dimensions
+    function resizeCanvas() {
+        canvas.width = video.videoWidth || video.offsetWidth;
+        canvas.height = video.videoHeight || video.offsetHeight;
+        redrawZones();
+    }
+    
+    video.addEventListener('loadedmetadata', resizeCanvas);
+    window.addEventListener('resize', resizeCanvas);
+    
+    // Drawing functions
+    // Ensure canvas receives pointer events for drawing
+    canvas.style.pointerEvents = 'auto';
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', endDrawing);
+    
+    function startDrawing(e) {
+        // If grid mode, do nothing
+        if (drawingMode === 'grid') return;
+        drawing = true;
+        const point = getCanvasPoint(e);
+        if (drawingMode === 'zone') {
+            currentZone = [point];
+        } else if (drawingMode === 'rect') {
+            currentRect = { x: point.x, y: point.y, w: 0, h: 0 };
+        }
+        redrawZones();
+    }
+    
+    function draw(e) {
+        if (!drawing) return;
+        const point = getCanvasPoint(e);
+        if (drawingMode === 'zone') {
+            currentZone.push(point);
+        } else if (drawingMode === 'rect' && currentRect) {
+            currentRect.w = point.x - currentRect.x;
+            currentRect.h = point.y - currentRect.y;
+        }
+        redrawZones();
+    }
+    
+    function endDrawing() {
+        if (!drawing) return;
+        drawing = false;
+        if (drawingMode === 'zone') {
+            if (currentZone.length > 2) {
+                zones.push(currentZone);
+            }
+            currentZone = [];
+        } else if (drawingMode === 'rect') {
+            // normalize rect (allow negative width/height)
+            if (currentRect) {
+                let x = currentRect.x;
+                let y = currentRect.y;
+                let w = currentRect.w;
+                let h = currentRect.h;
+                if (w < 0) { x += w; w = Math.abs(w); }
+                if (h < 0) { y += h; h = Math.abs(h); }
+                if (w > 5 && h > 5) {
+                    rects.push({ x: x, y: y, w: w, h: h });
+                }
+            }
+            currentRect = null;
+        }
+        redrawZones();
+    }
+    
+    function getCanvasPoint(e) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: (e.clientX - rect.left) * (canvas.width / rect.width),
+            y: (e.clientY - rect.top) * (canvas.height / rect.height)
+        };
+    }
+    
+    function redrawZones() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        if (drawingMode === 'grid') {
+            drawGrid();
+        }
+        
+        // Draw saved zones
+        zones.forEach(zone => {
+            drawZone(zone, 'rgba(0, 123, 255, 0.3)', 'rgba(0, 123, 255, 0.8)');
+        });
+
+        // Draw saved rects
+        rects.forEach(r => drawRect(r, 'rgba(40,167,69,0.25)', 'rgba(40,167,69,0.9)'));
+
+        // Draw current rect
+        if (currentRect) {
+            drawRect(currentRect, 'rgba(255,193,7,0.25)', 'rgba(255,193,7,0.9)')
+        }
+        
+        // Draw current zone
+        if (currentZone.length > 0) {
+            drawZone(currentZone, 'rgba(255, 0, 0, 0.3)', 'rgba(255, 0, 0, 0.8)');
+        }
+    }
+
+    function drawRect(r, fillStyle, strokeStyle) {
+        ctx.beginPath();
+        ctx.rect(r.x, r.y, r.w, r.h);
+        ctx.fillStyle = fillStyle;
+        ctx.strokeStyle = strokeStyle;
+        ctx.fill();
+        ctx.stroke();
+    }
+    
+    function drawZone(points, fillStyle, strokeStyle) {
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        points.forEach(point => ctx.lineTo(point.x, point.y));
+        ctx.closePath();
+        ctx.fillStyle = fillStyle;
+        ctx.strokeStyle = strokeStyle;
+        ctx.fill();
+        ctx.stroke();
+    }
+    
+    function drawGrid() {
+        const cellWidth = canvas.width / gridSize.x;
+        const cellHeight = canvas.height / gridSize.y;
+        
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.lineWidth = 1;
+        
+        // Draw vertical lines
+        for (let i = 1; i < gridSize.x; i++) {
+            ctx.beginPath();
+            ctx.moveTo(i * cellWidth, 0);
+            ctx.lineTo(i * cellWidth, canvas.height);
+            ctx.stroke();
+        }
+        
+        // Draw horizontal lines
+        for (let i = 1; i < gridSize.y; i++) {
+            ctx.beginPath();
+            ctx.moveTo(0, i * cellHeight);
+            ctx.lineTo(canvas.width, i * cellHeight);
+            ctx.stroke();
+        }
+    }
+    
+    // Button handlers
+    document.getElementById('drawGrid').addEventListener('click', () => {
+        drawingMode = 'grid';
+        redrawZones();
+    });
+    
+    document.getElementById('drawZone').addEventListener('click', () => {
+        drawingMode = 'zone';
+        redrawZones();
+    });
+
+    document.getElementById('drawRect').addEventListener('click', () => {
+        drawingMode = 'rect';
+        redrawZones();
+    });
+    
+    document.getElementById('clearCanvas').addEventListener('click', () => {
+        zones = [];
+        currentZone = [];
+        redrawZones();
+    });
+    
+    document.getElementById('showOverlay').addEventListener('change', (e) => {
+        canvas.style.display = e.target.checked ? 'block' : 'none';
+    });
+    
+    document.getElementById('saveZones').addEventListener('click', () => {
+        // convert rects into polygons (clockwise) and append to zones
+        const rectPolys = rects.map(r => {
+            return [
+                {x: r.x, y: r.y},
+                {x: r.x + r.w, y: r.y},
+                {x: r.x + r.w, y: r.y + r.h},
+                {x: r.x, y: r.y + r.h}
+            ];
+        });
+        const allZones = zones.concat(rectPolys);
+
+        const zonesData = {
+            videoId: '{{ video.id }}',
+            zones: allZones,
+            gridSize: gridSize
+        };
+        
+        fetch('{{ url_for("save_zones") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(zonesData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Zones saved successfully!');
+            } else {
+                alert('Error saving zones: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error saving zones');
+        });
+    });
+
+    // Start analysis (async job)
+    document.getElementById('startAnalysis').addEventListener('click', () => {
+        const mode = document.getElementById('analysisMode').value || 'motion';
+        const payload = { videoId: '{{ video.id }}', mode: mode };
+        document.getElementById('analysisStatus').innerText = 'Starting...';
+        fetch('{{ url_for("start_analysis") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                document.getElementById('analysisStatus').innerText = 'Error: ' + (data.error || 'unknown');
+                return;
+            }
+            const jobId = data.job_id;
+            document.getElementById('analysisStatus').innerText = 'Job queued: ' + jobId;
+            // poll status
+            const iv = setInterval(() => {
+                fetch(`{{ url_for('analysis_status', job_id='') }}/${jobId}`)
+                .then(r => r.json())
+                .then(js => {
+                    if (!js.success) {
+                        document.getElementById('analysisStatus').innerText = 'Status error: ' + (js.error || 'unknown');
+                        clearInterval(iv);
+                        return;
+                    }
+                    const job = js.job;
+                    document.getElementById('analysisStatus').innerText = 'Status: ' + job.status + ' (' + job.progress + '%)';
+                    if (job.status === 'completed' || job.status === 'error') {
+                        clearInterval(iv);
+                        document.getElementById('analysisResult').innerText = JSON.stringify(job.result || job.error, null, 2);
+                        if (job.status === 'completed') {
+                            document.getElementById('analysisStatus').innerText = 'Completed';
+                        }
+                    }
+                })
+            }, 2000);
+        })
+        .catch(err => {
+            document.getElementById('analysisStatus').innerText = 'Start failed: ' + err;
+        });
+    });
+
+    // YOLO Preview (synchronous short run)
+    document.getElementById('yoloPreviewBtn').addEventListener('click', () => {
+        const payload = { sample_rate: 5, max_frames: 20, save_frames: true };
+        document.getElementById('analysisStatus').innerText = 'Running YOLO preview...';
+        fetch(`{{ url_for('detect_preview', video_id=video.id) }}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                document.getElementById('analysisStatus').innerText = 'Preview error: ' + (data.error || 'unknown');
+                return;
+            }
+            document.getElementById('analysisStatus').innerText = 'Preview completed';
+            document.getElementById('analysisResult').innerText = JSON.stringify(data.results, null, 2);
+            const panel = document.getElementById('yoloPreviewPanel');
+            panel.innerHTML = '';
+            (data.images || []).forEach(src => {
+                const img = document.createElement('img');
+                img.src = src;
+                img.style.maxWidth = '200px';
+                img.style.margin = '6px';
+                panel.appendChild(img);
+            });
+        })
+        .catch(err => {
+            document.getElementById('analysisStatus').innerText = 'Preview failed: ' + err;
+        });
+    });
+});
+</script>
+{% endblock %}

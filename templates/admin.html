@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Panel{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="h4 mb-0">Admin Panel</h2>
+  <div>
+    <a class="btn btn-outline-secondary btn-sm me-2" href="{{ url_for('dashboard') }}">Back</a>
+    <a class="btn btn-outline-danger btn-sm" href="{{ url_for('logout') }}">Logout</a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h5 class="card-title">Users</h5>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover">
+        <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Is Admin</th></tr></thead>
+        <tbody>
+          {% for u in users %}
+            <tr><td>{{ u.id }}</td><td>{{ u.name }}</td><td>{{ u.email }}</td><td>{{ 'Yes' if u.is_admin else 'No' }}</td></tr>
+          {% else %}
+            <tr><td colspan="4">No users</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h5 class="card-title">Login History (recent)</h5>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>Time</th><th>Email</th><th>User</th><th>IP</th><th>Success</th></tr></thead>
+        <tbody>
+          {% for lh in login_history %}
+            <tr>
+              <td>{{ lh.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+              <td>{{ lh.email }}</td>
+              <td>{% if lh.user %}{{ lh.user.name }} ({{ lh.user.email }}){% else %}-{% endif %}</td>
+              <td>{{ lh.ip_address }}</td>
+              <td>{{ '✔' if lh.success else '✖' }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5">No login history</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <h5 class="card-title">All Records</h5>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>Time</th><th>User</th><th>File</th><th>Count</th></tr></thead>
+        <tbody>
+          {% for r in records %}
+            <tr>
+              <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+              <td>{{ r.user.name }} ({{ r.user.email }})</td>
+              <td>{{ r.filename }}</td>
+              <td>{{ r.total_count }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4">No records</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

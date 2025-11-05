@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}Super Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Super Admin Dashboard</h2>
+    
+    <div class="row mt-4">
+        <div class="col-12">
+            <h3>System Overview</h3>
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">Total Users</h5>
+                            <p class="card-text">{{ users|length }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">Total Videos</h5>
+                            <p class="card-text">{{ videos|length }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">Login History</h5>
+                            <p class="card-text">{{ login_history|length }} records</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <h3>User Management</h3>
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users %}
+                        <tr>
+                            <td>{{ user.id }}</td>
+                            <td>{{ user.name }}</td>
+                            <td>{{ user.email }}</td>
+                            <td>
+                                {% if user.is_super_admin %}
+                                <span class="badge bg-danger">Super Admin</span>
+                                {% elif user.is_admin %}
+                                <span class="badge bg-warning">Admin</span>
+                                {% else %}
+                                <span class="badge bg-info">User</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if not user.is_active %}
+                                    <span class="badge bg-danger">Blocked</span>
+                                {% else %}
+                                    <span class="badge bg-success">Active</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if not user.is_super_admin and user.id != current_user.id %}
+                                <form method="post" action="{{ url_for('super_admin_toggle_block', user_id=user.id) }}" style="display:inline">
+                                    <button type="submit" class="btn btn-sm {% if user.is_active %}btn-danger{% else %}btn-success{% endif %}">{% if user.is_active %}Block{% else %}Unblock{% endif %}</button>
+                                </form>
+                                {% else %}
+                                    <em>N/A</em>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <h3>Video Records</h3>
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>User</th>
+                            <th>Filename</th>
+                            <th>Count</th>
+                            <th>Status</th>
+                            <th>Created At</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for video in videos %}
+                        <tr>
+                            <td>{{ video.id }}</td>
+                            <td>{{ video.user.name }}</td>
+                            <td>{{ video.filename }}</td>
+                            <td>{{ video.total_count }}</td>
+                            <td>
+                                <span class="badge {% if video.status == 'completed' %}bg-success{% elif video.status == 'error' %}bg-danger{% else %}bg-warning{% endif %}">
+                                    {{ video.status }}
+                                </span>
+                            </td>
+                            <td>{{ video.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <h3>Login History</h3>
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Email</th>
+                            <th>Status</th>
+                            <th>IP Address</th>
+                            <th>User Agent</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in login_history %}
+                        <tr>
+                            <td>{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                            <td>{{ log.email }}</td>
+                            <td>
+                                <span class="badge {% if log.success %}bg-success{% else %}bg-danger{% endif %}">
+                                    {{ 'Success' if log.success else 'Failed' }}
+                                </span>
+                            </td>
+                            <td>{{ log.ip_address }}</td>
+                            <td class="text-truncate" style="max-width: 200px;">{{ log.user_agent }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

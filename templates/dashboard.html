@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Crow Count{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="h4 mb-0">Crow Count Dashboard — Hello, {{ current_user.name }}</h2>
+  <div>
+    {% if current_user.is_admin %}
+      <a class="btn btn-outline-secondary btn-sm me-2" href="{{ url_for('admin') }}">Admin Panel</a>
+    {% endif %}
+    <a class="btn btn-outline-danger btn-sm" href="{{ url_for('logout') }}">Logout</a>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<div class="row g-3">
+  <div class="col-md-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-subtitle mb-2 text-muted">Total Videos</h6>
+        <h3 class="card-title">{{ records|length }}</h3>
+        <p class="text-muted small">Uploaded videos you've processed</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-subtitle mb-2 text-muted">Last Estimated Count</h6>
+        <h3 class="card-title">{% if records|length %}{{ records[0].total_count }}{% else %}—{% endif %}</h3>
+        <p class="text-muted small">Most recent processed video</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-subtitle mb-2 text-muted">Last Processed</h6>
+        <h3 class="card-title">{% if records|length %}{{ records[0].processed_at.strftime('%Y-%m-%d %H:%M') if records[0].processed_at else records[0].created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</h3>
+        <p class="text-muted small">Time of last processing</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row mt-4">
+  <div class="col-lg-6">
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="card-title">Upload a video</h5>
+        <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+          <input class="form-control" type="file" name="video" accept="video/*" required>
+          <button class="btn btn-primary" type="submit">Upload & Process</button>
+        </form>
+        <div class="text-muted small mt-2">Supported: mp4, avi, mov, mkv</div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Processing history</h5>
+        <div class="table-responsive">
+          <table class="table table-hover">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>File</th>
+                <th>Count</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in records %}
+                <tr>
+                  <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                  <td>{{ r.filename }}</td>
+                  <td class="video-count" data-id="{{ r.id }}">{{ r.total_count }}</td>
+                  <td class="video-status" data-id="{{ r.id }}">{{ r.status }}</td>
+                  <td>
+                    <div class="btn-group">
+                      <a class="btn btn-sm btn-primary" href="{{ url_for('video_preview', video_id=r.id) }}">Preview & Zones</a>
+                      <button class="btn btn-sm btn-success start-analysis" data-id="{{ r.id }}">Start Analysis</button>
+                      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('uploaded_file', filename=r.filename) }}">Download</a>
+                    </div>
+                  </td>
+                </tr>
+              {% else %}
+                <tr><td colspan="4">No records yet</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="card-title">Counts over time</h5>
+        <canvas id="countsChart" width="400" height="250"></canvas>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Quick Actions</h5>
+        <p class="small text-muted">Use these to quickly navigate</p>
+        <div class="d-grid gap-2 d-md-block">
+          <a class="btn btn-outline-primary btn-sm" href="{{ url_for('admin') }}">All Records (Admin)</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  const labels = [
+    {% for r in records|reverse %}
+      "{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}",
+    {% endfor %}
+  ];
+  const data = [
+    {% for r in records|reverse %}
+      {{ r.total_count }},
+    {% endfor %}
+  ];
+
+  const ctx = document.getElementById('countsChart');
+  if (ctx) {
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Estimated Count',
+          data: data,
+          borderColor: 'rgba(54, 162, 235, 1)',
+          backgroundColor: 'rgba(54, 162, 235, 0.2)',
+          tension: 0.25,
+          fill: true,
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { display: true },
+          y: { beginAtZero: true }
+        }
+      }
+    });
+  }
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Start analysis when button clicked
+  document.querySelectorAll('.start-analysis').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
+      btn.disabled = true;
+      btn.textContent = 'Queued...';
+      fetch('{{ url_for("start_analysis") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: id })
+      })
+      .then(r => r.json())
+      .then(resp => {
+        if (!resp.success) throw new Error(resp.error || 'failed');
+        pollJob(resp.job_id, id, btn);
+      })
+      .catch(err => {
+        console.error('Start job error', err);
+        btn.disabled = false;
+        btn.textContent = 'Start Analysis';
+        alert('Failed to start analysis: ' + (err.message || err));
+      });
+    });
+  });
+
+  function pollJob(jobId, videoId, btn) {
+    const interval = setInterval(() => {
+      fetch(`{{ url_for('analysis_status', job_id='') }}${jobId}`)
+        .then(r => r.json())
+        .then(js => {
+          if (!js.success) {
+            clearInterval(interval);
+            alert('Job status error: ' + (js.error || 'unknown'));
+            btn.disabled = false;
+            btn.textContent = 'Start Analysis';
+            return;
+          }
+          const job = js.job;
+          // update status cell
+          const statusCell = document.querySelector(`.video-status[data-id='${videoId}']`);
+          if (statusCell) statusCell.textContent = job.status;
+          if (job.status === 'completed') {
+            clearInterval(interval);
+            btn.disabled = false;
+            btn.textContent = 'Start Analysis';
+            // update count cell
+            if (job.result && job.result.total_count !== undefined) {
+              const countCell = document.querySelector(`.video-count[data-id='${videoId}']`);
+              if (countCell) countCell.textContent = job.result.total_count;
+              // update header card values — simple refresh
+              location.reload();
+            }
+          } else if (job.status === 'error') {
+            clearInterval(interval);
+            btn.disabled = false;
+            btn.textContent = 'Start Analysis';
+            alert('Analysis error: ' + (job.error || 'unknown'));
+          }
+        })
+        .catch(err => {
+          console.error('Poll error', err);
+        });
+    }, 2000);
+  }
+});
+</script>
+
+{% endblock %}
